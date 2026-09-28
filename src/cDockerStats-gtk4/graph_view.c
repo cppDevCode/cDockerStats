@@ -1,6 +1,7 @@
-#include "graph_view.h"
-#include "docker_client.h"
-#include "info_modal.h"
+#include "cDockerStats-gtk4/graph_view.h"
+#include "core/docker_client.h"
+#include "cDockerStats-gtk4/container_object.h"
+#include "cDockerStats-gtk4/info_modal.h"
 #include <graphviz/gvc.h>
 #include <math.h>
 

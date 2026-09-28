@@ -2,12 +2,13 @@
 // Minimal GTK4 window that will later host the full UI.
 
 #include <gtk/gtk.h>
-#include "resource_monitor.h"
-#include "graph_view.h"
-#include "docker_client.h"
+#include "core/resource_monitor.h"
+#include "cDockerStats-gtk4/graph_view.h"
+#include "core/docker_client.h"
+#include "cDockerStats-gtk4/container_object.h"
 #include <unistd.h>
-#include "info_modal.h"
-#include "gauge_view.h"
+#include "cDockerStats-gtk4/info_modal.h"
+#include "cDockerStats-gtk4/gauge_view.h"
 
 // Forward declaration of UI initialization (to be implemented later)
 void init_ui(GtkApplication *app);
@@ -164,6 +165,37 @@ static gboolean update_global_gauges_cb(gpointer user_data) {
     return G_SOURCE_CONTINUE;
 }
 
+static void on_core_stats_updated(ContainerStats *stats, void *user_data) {
+    UIData *ui = user_data;
+    if (!ui || !ui->store) return;
+    
+    guint n = g_list_model_get_n_items(G_LIST_MODEL(ui->store));
+    for (guint i = 0; i < n; i++) {
+        ContainerObject *cobj = g_list_model_get_item(G_LIST_MODEL(ui->store), i);
+        if (cobj && cobj->info && g_strcmp0(cobj->info->id, stats->id) == 0) {
+            cobj->info->cpu_percent = stats->cpu_percent;
+            cobj->info->mem_usage = stats->mem_usage;
+            cobj->info->mem_limit = stats->mem_limit;
+            cobj->info->net_rx = stats->net_rx;
+            cobj->info->net_tx = stats->net_tx;
+            cobj->info->blk_read = stats->blk_read;
+            cobj->info->blk_write = stats->blk_write;
+
+            int idx = cobj->info->history_idx;
+            cobj->info->cpu_history[idx] = stats->cpu_percent;
+            cobj->info->history_idx = (idx + 1) % 60;
+            if (cobj->info->history_count < 60) {
+                cobj->info->history_count++;
+            }
+
+            g_signal_emit_by_name(cobj, "stats-updated");
+            g_object_unref(cobj);
+            break;
+        }
+        if (cobj) g_object_unref(cobj);
+    }
+}
+
 // Placeholder UI initialization – currently just opens an empty window.
 void init_ui(GtkApplication *app) {
   GtkWidget *window = gtk_application_window_new(app);
@@ -179,7 +211,7 @@ void init_ui(GtkApplication *app) {
   ui->selection = selection;
   ui->window = window;
   // Start the periodic resource monitor (5 s interval)
-  ui->monitor_source_id = start_resource_monitor(store);
+  ui->monitor_source_id = start_resource_monitor(on_core_stats_updated, ui);
 
   // Start async task to load containers
   GTask *task = g_task_new(NULL, NULL, load_containers_done, ui);

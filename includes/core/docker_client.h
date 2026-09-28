@@ -50,15 +50,4 @@ gchar* docker_client_get_logs(const gchar *id);
 gchar* docker_client_inspect_network(const gchar *net_name);
 
 
-// ContainerObject wrapper for GListStore
-#define CONTAINER_TYPE_OBJECT (container_object_get_type())
-G_DECLARE_FINAL_TYPE(ContainerObject, container_object, CONTAINER, OBJECT, GObject)
-
-struct _ContainerObject {
-    GObject parent_instance;
-    ContainerInfo *info;
-};
-
-ContainerObject *container_object_new(ContainerInfo *info);
-
 #endif /* DOCKER_CLIENT_H */

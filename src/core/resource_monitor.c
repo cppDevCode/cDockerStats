@@ -1,83 +1,82 @@
 // resource_monitor.c – periodic container resource monitoring implementation
 
-#include "resource_monitor.h"
-#include "docker_client.h"
+#include "core/resource_monitor.h"
+#include "core/docker_client.h"
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <curl/curl.h>
 
-/* Internal helper to fetch stats for a container and emit a signal or update UI.
-   For now we simply print the stats to stdout. */
 typedef struct {
-    ContainerObject *cobj;
+    ResourceMonitorCallback cb;
+    void *user_data;
+} MonitorData;
+
+typedef struct {
+    ResourceMonitorCallback cb;
+    void *user_data;
     ContainerStats *stats;
 } StatUpdateData;
 
 static gboolean apply_stats_idle(gpointer user_data) {
     StatUpdateData *data = user_data;
-    if (data->cobj && data->cobj->info && data->stats) {
-        data->cobj->info->cpu_percent = data->stats->cpu_percent;
-        data->cobj->info->mem_usage = data->stats->mem_usage;
-        data->cobj->info->mem_limit = data->stats->mem_limit;
-        data->cobj->info->net_rx = data->stats->net_rx;
-        data->cobj->info->net_tx = data->stats->net_tx;
-        data->cobj->info->blk_read = data->stats->blk_read;
-        data->cobj->info->blk_write = data->stats->blk_write;
-
-        // Update history buffer
-        int idx = data->cobj->info->history_idx;
-        data->cobj->info->cpu_history[idx] = data->stats->cpu_percent;
-        data->cobj->info->history_idx = (idx + 1) % 60;
-        if (data->cobj->info->history_count < 60) {
-            data->cobj->info->history_count++;
-        }
-
-        g_signal_emit_by_name(data->cobj, "stats-updated");
+    if (data->cb && data->stats) {
+        data->cb(data->stats, data->user_data);
     }
     if (data->stats) {
         g_free(data->stats->id);
         g_free(data->stats);
     }
-    if (data->cobj) g_object_unref(data->cobj);
     g_free(data);
     return G_SOURCE_REMOVE;
 }
 
 static gpointer fetch_stats_thread(gpointer user_data) {
-    GListStore *store = (GListStore *)user_data;
-    if (!store) return NULL;
+    MonitorData *md = (MonitorData *)user_data;
+    if (!md) return NULL;
     
-    guint n = g_list_model_get_n_items(G_LIST_MODEL(store));
-    for (guint i = 0; i < n; i++) {
-        ContainerObject *cobj = g_list_model_get_item(G_LIST_MODEL(store), i);
-        if (cobj && cobj->info) {
-            GError *err = NULL;
-            ContainerStats *stats = fetch_container_stats(cobj->info->id, &err);
-            if (stats) {
-                StatUpdateData *data = g_new(StatUpdateData, 1);
-                data->cobj = g_object_ref(cobj);
-                data->stats = stats;
-                g_idle_add(apply_stats_idle, data);
+    GError *err = NULL;
+    GList *containers = docker_client_list_containers(&err);
+    if (containers) {
+        for (GList *l = containers; l != NULL; l = l->next) {
+            ContainerInfo *c = (ContainerInfo *)l->data;
+            if (g_strcmp0(c->state, "running") == 0) {
+                GError *err2 = NULL;
+                ContainerStats *stats = fetch_container_stats(c->id, &err2);
+                if (stats) {
+                    StatUpdateData *data = g_new(StatUpdateData, 1);
+                    data->cb = md->cb;
+                    data->user_data = md->user_data;
+                    data->stats = stats;
+                    // Ensure the callback is executed in the main thread (useful for GUIs, and safe generally in GLib apps)
+                    g_idle_add(apply_stats_idle, data);
+                }
+                if (err2) g_error_free(err2);
             }
-            if (err) g_error_free(err);
         }
-        if (cobj) g_object_unref(cobj);
+        docker_client_free_container_list(containers);
     }
-    g_object_unref(store);
+    if (err) g_error_free(err);
     return NULL;
 }
 
 /* Periodic callback – called every 5 seconds */
 static gboolean monitor_timeout_cb(gpointer user_data) {
-    GListStore *store = (GListStore *)user_data;
-    GThread *thread = g_thread_new("monitor_thread", fetch_stats_thread, g_object_ref(store));
+    MonitorData *md = (MonitorData *)user_data;
+    GThread *thread = g_thread_new("monitor_thread", fetch_stats_thread, md);
     g_thread_unref(thread);
     return G_SOURCE_CONTINUE; // keep the timeout
 }
 
-guint start_resource_monitor(GListStore *store) {
-    // 5‑second interval (you may change the interval later)
-    return g_timeout_add_seconds(5, monitor_timeout_cb, store);
+static void monitor_data_free(gpointer user_data) {
+    g_free(user_data);
+}
+
+guint start_resource_monitor(ResourceMonitorCallback cb, void *user_data) {
+    MonitorData *md = g_new(MonitorData, 1);
+    md->cb = cb;
+    md->user_data = user_data;
+    // 5-second interval
+    return g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 5, monitor_timeout_cb, md, monitor_data_free);
 }
 
 void stop_resource_monitor(guint source_id) {
@@ -86,11 +85,6 @@ void stop_resource_monitor(guint source_id) {
     }
 }
 
-/* Fetch current stats for a single container (synchronous). This is a thin wrapper
-   around Docker's "/containers/<id>/stats?stream=false" endpoint.
-   It uses libcurl (through docker_client) and json‑glib to parse the response.
-   The implementation extracts the fields defined in ContainerStats.
-   Errors are reported via GError. */
 static size_t monitor_curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
     size_t total = size * nmemb;
     GString *stream = (GString *)userdata;

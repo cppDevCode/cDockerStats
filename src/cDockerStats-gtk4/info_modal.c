@@ -1,4 +1,4 @@
-#include "info_modal.h"
+#include "cDockerStats-gtk4/info_modal.h"
 
 static void on_cpu_graph_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data) {
     ContainerInfo *info = user_data;

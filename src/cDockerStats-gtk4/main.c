@@ -360,6 +360,30 @@ static void on_context_menu_action(GSimpleAction *action, GVariant *parameter, g
     } else if (g_strcmp0(action_name, "inspect") == 0) {
         show_container_modal(cobj->info, GTK_WIDGET(window));
         return;
+    } else if (g_strcmp0(action_name, "exec") == 0) {
+        const gchar *terminals[] = {"x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"};
+        gboolean launched = FALSE;
+        for (int i = 0; i < 5 && !launched; i++) {
+            gchar *cmd;
+            if (g_strcmp0(terminals[i], "gnome-terminal") == 0) {
+                cmd = g_strdup_printf("%s -- docker exec -it %s sh", terminals[i], cobj->info->id);
+            } else {
+                cmd = g_strdup_printf("%s -e \"docker exec -it %s sh\"", terminals[i], cobj->info->id);
+            }
+            
+            // Note: g_spawn_command_line_async uses sh -c, so quotes are parsed correctly
+            if (g_spawn_command_line_async(cmd, NULL)) {
+                launched = TRUE;
+            }
+            g_free(cmd);
+        }
+        if (!launched) {
+            GtkWidget *dialog = gtk_message_dialog_new(window, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
+                                                       "Could not launch a terminal emulator.");
+            g_signal_connect(dialog, "response", G_CALLBACK(gtk_window_destroy), NULL);
+            gtk_window_present(GTK_WINDOW(dialog));
+        }
+        return;
     } else {
         return;
     }

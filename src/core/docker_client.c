@@ -2,7 +2,7 @@
 // Usa libcurl + json-glib para obtener la lista de contenedores.
 // Esta versión solo implementa la lectura; las operaciones de gestión (start/stop, …) se añadirán más adelante.
 
-#include "docker_client.h"
+#include "core/docker_client.h"
 #include <curl/curl.h>
 #include <json-glib/json-glib.h>
 #include <glib.h>

@@ -2,7 +2,7 @@
 #define INFO_MODAL_H
 
 #include <gtk/gtk.h>
-#include "docker_client.h"
+#include "core/docker_client.h"
 
 void show_container_modal(ContainerInfo *info, GtkWidget *parent);
 void show_network_modal(const gchar *net_name, GtkWidget *parent);

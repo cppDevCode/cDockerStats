@@ -4,8 +4,7 @@
 #define RESOURCE_MONITOR_H
 
 #include <glib.h>
-#include <gio/gio.h>
-#include "docker_client.h"
+#include "core/docker_client.h"
 
 /* Structure representing per‑container resource stats */
 typedef struct {
@@ -19,10 +18,12 @@ typedef struct {
     guint64 blk_write;  // block I/O write bytes
 } ContainerStats;
 
+typedef void (*ResourceMonitorCallback)(ContainerStats *stats, void *user_data);
+
 /* Starts periodic monitoring (every 5 seconds). The callback updates UI.
    Returns a source ID that can be used with g_source_remove() to stop.
  */
-guint start_resource_monitor(GListStore *store);
+guint start_resource_monitor(ResourceMonitorCallback cb, void *user_data);
 
 /* Stop the periodic monitoring using the source ID returned by start_resource_monitor(). */
 void stop_resource_monitor(guint source_id);

@@ -1,4 +1,4 @@
-#include "gauge_view.h"
+#include "cDockerStats-gtk4/gauge_view.h"
 #include <math.h>
 
 #ifndef M_PI
